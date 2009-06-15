@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # coding=utf-8
 
+import optparse
 import os
 import re
 import select
@@ -10,6 +11,12 @@ import sys
 
 
 TIMEOUT = 0.2
+
+# обработка командной строки
+parser = optparse.OptionParser(usage='usage: %prog nic net_address net_mask')
+args = parser.parse_args(args=None, values=None)
+if len(args[1]) != 3:
+        parser.error("incorrect number of arguments")
 
 # значения собственных MAC и IP
 ifconfig = os.popen('ifconfig ' + sys.argv[1]).read()
@@ -67,6 +74,7 @@ class ARPSendPacket:
 		# операция
 		self._op = struct.pack('H', socket.htons(1))
 		
+
 		# mac отправителя
 		self._mac_sedr = None
 
@@ -96,7 +104,8 @@ class IPAddress:
 		self.n = []
 		for l in re.split('\.', ip):
 			self.n.append(int(l))
-			
+		
+		# широковещательный IP
 		self.limit = []
 		if mask:
 			net = []
@@ -144,92 +153,24 @@ class IPAddress:
 
 mip = IPAddress(sys.argv[2], sys.argv[3])
 while mip.next():
-	print str(mip)
-	packet = ARPSendPacket(mip.__str__())
+	print str(mip) # печать запрашиваемого IP адреса
+	packet = ARPSendPacket(mip.__str__()) # создание ARP-пакета
 	#packet = ARPSendPacket('192.168.159.3')
 	soc = socket.socket(socket.PF_PACKET, socket.SOCK_RAW)
 	soc.bind((sys.argv[1], 0x0806))
 	soc.send(packet.__str__())
 	while True:
 		srecv = select.select([soc], [], [], TIMEOUT)
+		# данные приняты
 		if srecv[0]:
 			data = soc.recv(42)
+			# ARP-ответ
 			if ord(data[21]) == 2:
+				# печать IP и MAC адреса
 				print mip, str(ord(data[6])) + ':' + str(ord(data[7])) + ':' + \
 					str(ord(data[8])) + ':' + str(ord(data[9])) + ':' + \
 					str(ord(data[10])) + ':' + str(ord(data[11]))
 			else:
+				# не ARP-ответ
 				print 'error packet'
 		break
-
-
-
-#~ numaddr = socket.inet_aton(sys.argv[2])
-
-#~ print numaddr 
-
-
-#~ handly_crafted_packet =\
-#~ struct.pack('BBBBBB', 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)+\
-#~ struct.pack('BBBBBB', 0x00, 0x0c, 0x29, 0x60, 0x3d, 0x2a)+\
-#~ struct.pack('H', socket.htons(0x0806))+\
-#~ struct.pack('H', socket.htons(1))+\
-#~ struct.pack('H', socket.htons(0x0800))+\
-#~ struct.pack('B', 6)+\
-#~ struct.pack('B', 4)+\
-#~ struct.pack('H', socket.htons(1))+\
-#~ struct.pack('BBBBBB', 0x00, 0x0c, 0x29, 0x60, 0x3d, 0x2a)+\
-#~ socket.inet_aton('192.168.159.132')+\
-#~ struct.pack('BBBBBB', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)+\
-#~ socket.inet_aton('192.168.159.2')
-
-#~ handly_crafted_packet = ARPSendPacket('192.168.159.3')
-
-#~ soc = socket.socket(socket.PF_PACKET, socket.SOCK_RAW)
-#~ soc.bind((sys.argv[1], 0x0806))
-
-#~ soc.send(handly_crafted_packet.__str__())
-
-#~ while True:
-	#~ srecv = select.select([soc], [], [], TIMEOUT)
-	#~ if srecv[0]:
-		#~ data = soc.recv(42)
-		#~ if ord(data[21]) == 2:
-			#~ print 'ok'
-		#~ else:
-			#~ print 'false'
-	#~ break
-	
-#~ print 'exit'
-
-
-#~ i=1
-#~ for c in handly_crafted_packet.__str__():
-	#~ print "%02x" % ord(c),
-	#~ if i % 16 == 0:
-		#~ print
-	#~ i+=1
-
-#~ print
-
-#~ i=1
-#~ for c in data:
-	#~ print "%02x" % ord(c),
-	#~ if i % 16 == 0:
-		#~ print
-	#~ i+=1
-
-
-#~ print
-
-
-
-
-
-
-
-
-
-
-
-
