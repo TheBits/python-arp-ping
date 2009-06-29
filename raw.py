@@ -10,13 +10,46 @@ import struct
 import sys
 
 
+# socket timeout
 TIMEOUT = 0.2
 
-# обработка командной строки
+# Ethernet
+TYPEFRAME = 0x0806
+
+# ARP packet
+TYPEHRD = 1
+
+# protocol ip
+PROTOCOLTYPE = 0x0800
+
+# ARP default
+PACKETSIZE = 42
+
+ARPREQUEST = 1
+ARPREPLY = 2
+
+# command line
 parser = optparse.OptionParser(usage='usage: %prog nic net_address net_mask')
 args = parser.parse_args(args=None, values=None)
-if len(args[1]) != 3:
+if len(args[1]) != 3: # need 3 arg
         parser.error("incorrect number of arguments")
+
+# network address
+try:
+	socket.inet_aton(sys.argv[2])
+except socket.error:
+	parser.error("error net address")
+
+# network mask
+try:
+	socket.inet_aton(sys.argv[3])
+except socket.error:
+	parser.error("error net mask")
+
+# interface
+if not re.match(r'^eth\d{1}$', sys.argv[1]):
+	parser.error("error net interface")
+
 
 # значения собственных MAC и IP
 ifconfig = os.popen('ifconfig ' + sys.argv[1]).read()
@@ -29,15 +62,15 @@ m = re.search(r'inet\saddr:([\d\.]+)\s', ifconfig)
 if m:
 	IP = m.group(1)
 
-# класс пакета для отправки
+# arp packet
 class ARPSendPacket:
 	
 	def _setip(self):
-		'''Устанавливает IP отправителя (свой)'''
+		'''Self IP'''
 		self._ip_sedr = socket.inet_aton(IP)
 		
 	def _setmac(self):
-		'''Устанавливает MAC отправителя (свой)'''
+		'''Self MAC'''
 		macbin = ''
 		for l in re.split(r':', MAC):
 			macbin += chr(int('0x' + l, 16))
@@ -45,9 +78,7 @@ class ARPSendPacket:
 		self._mac_sedr = macbin
 
 	def __init__(self, value=None):
-		'''Инициализация пакета
-		Принимает IP получателя
-		'''
+		'''Init packet'''
 		# Заголовок Ethernet
 		# eth назначения
 		self._eth_dest = struct.pack('6B', 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
@@ -56,23 +87,23 @@ class ARPSendPacket:
 		self._eth_src = None
 		
 		# тип фрейма, всегда 
-		self._type_frame = struct.pack('H', socket.htons(0x0806))
+		self._type_frame = struct.pack('H', socket.htons(TYPEFRAME))
 		
 		# ARP пакет
 		# тип аппаратуры (ethernet)
-		self._type_hrd = struct.pack('H', socket.htons(1))
+		self._type_hrd = struct.pack('H', socket.htons(TYPEHRD))
 
 		# протокол ip, всегда 0x0800
-		self._type_pro = struct.pack('H', socket.htons(0x0800)) 
+		self._type_pro = struct.pack('H', socket.htons(PROTOCOLTYPE)) 
 		
 		# длина mac
-		self._mac_len = struct.pack('B', 6)
+		self._mac_len = struct.pack('B', struct.calcsize('6B'))
 
-		# длина ip
-		self._ip_len = struct.pack('B', 4) 
+		# длина ip вычисляется
+		#self._ip_len = struct.pack('B', 4) 
 		
 		# операция
-		self._op = struct.pack('H', socket.htons(1))
+		self._op = struct.pack('H', socket.htons(ARPREQUEST))
 		
 
 		# mac отправителя
@@ -88,7 +119,10 @@ class ARPSendPacket:
 		self._ip_recvr = socket.inet_aton(value)
 		
 		self._setmac()
+		
 		self._setip()
+		self._ip_len = struct.pack('B', len(self._ip_sedr))
+		
 
 	def __str__(self):
 		'''Возвращает пакет'''
@@ -119,7 +153,7 @@ class IPAddress:
 				self.limit[i] = abs(256 - net[i] + self.limit[i])
 
 	def next(self):
-		'''Увличивает ip на еденицу'''
+		'''Next IP'''
 		self.n[3] += 1
 
 		if self.n[3] == 256:
@@ -152,21 +186,20 @@ class IPAddress:
 
 
 mip = IPAddress(sys.argv[2], sys.argv[3])
+soc = socket.socket(socket.PF_PACKET, socket.SOCK_RAW)
+soc.bind((sys.argv[1], TYPEFRAME))
 while mip.next():
 	print str(mip) # печать запрашиваемого IP адреса
 	packet = ARPSendPacket(mip.__str__()) # создание ARP-пакета
-	#packet = ARPSendPacket('192.168.159.3')
-	soc = socket.socket(socket.PF_PACKET, socket.SOCK_RAW)
-	soc.bind((sys.argv[1], 0x0806))
 	soc.send(packet.__str__())
 	while True:
 		srecv = select.select([soc], [], [], TIMEOUT)
-		# данные приняты
+		# data
 		if srecv[0]:
-			data = soc.recv(42)
-			# ARP-ответ
-			if ord(data[21]) == 2:
-				# печать IP и MAC адреса
+			data = soc.recv(PACKETSIZE)
+			# ARP-response
+			if ord(data[21]) == ARPREPLY:
+				# print IP and MAC
 				print mip, str(ord(data[6])) + ':' + str(ord(data[7])) + ':' + \
 					str(ord(data[8])) + ':' + str(ord(data[9])) + ':' + \
 					str(ord(data[10])) + ':' + str(ord(data[11]))
